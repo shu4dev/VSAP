@@ -1,5 +1,5 @@
 theory concrete
-  imports Main "HOL-Library.Char_ord"
+  imports Main
 begin
 
 (* Device type definition *)
