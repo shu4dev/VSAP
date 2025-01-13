@@ -24,6 +24,9 @@ lemma read_after_create_abstract:
   by (metis fun_upd_def not_None_eq option.sel)
 
 
+
+  
+
 record absfile =
   size :: nat
   name :: string

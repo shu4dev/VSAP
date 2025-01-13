@@ -1,0 +1,58 @@
+We discussed high-level goals of the file system that it would be good
+to prove.  Specifically:
+
+- if a file has been created with new_file and has not been deleted,
+  and there are no read/write errors, then prove that the read_file
+  operation returns the same contents are were given to the new_file
+  operation that created the file
+  - this requires an assumption that reading a block returns the same
+    set of bytes that were most recently written to that block
+
+- since SAP stores new files into successive free blocks, it would be good
+  to prove that  the file creation will succeed as long as the
+  file fits in the largest free block group and the file name is unique.
+  Again, this requires an assumption that there be no errors and that
+  the read block operation returns the values most recently written to
+  that block.
+
+We discussed two ways to represent changes to the device:
+
+- the write function changes the device.  This is not visible in
+  the code, it is a side effect of calling the write function.
+  Instead, any proof has to keep track of some kind of state that
+  records the result of the write.
+
+- the write function returns a new device that contains the result
+  of the write.  For example, if the device is represented as a list
+  of blocks, the write function changes the value of the nth block by
+  creating and returning a new list which is identical to the old list
+  except at the nth position, where it holds the block that was written.
+  This is a purely functional way of handling the write -- the device
+  that is returned by write is a different device than was given to write.
+
+aloha
+
+Invariant 1
+  every write operation in this program writes device.bs bytes every read operation after calling format reads device.bs bytes
+Invariant 2
+  assert: the name of every file fits in device.bs - 9 (see new_file)
+Invariant 3
+  unless there are errors, every file written is accessible until a matching delete_file (or forever).
+Invariant 4
+  bytes64 (n64bytes n) = n for any n < 2^63.
+Invariant 5
+  n64bytes (bytes64 l) = l for any list l of length 8 with each element < 256.
+
+Correctness Proof
+  1.  if a file has been created with new_file and has not been deleted,
+      and there are no read/write errors, then prove that the read_file
+      operation returns the same contents are were given to the new_file
+      operation that created the file. This requires an assumption that reading 
+      a block returns the same set of bytes that were most recently written to that block
+  
+  2.  since SAP stores new files into successive free blocks, it would be good
+      to prove that  the file creation will succeed as long as the
+      file fits in the largest free block group and the file name is unique.
+      Again, this requires an assumption that there be no errors and that
+      the read block operation returns the values most recently written to
+      that block.

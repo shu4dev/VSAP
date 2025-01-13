@@ -10,14 +10,6 @@ record device =
   r :: "nat \<Rightarrow> nat list"  (* read function *)
   w :: "nat \<Rightarrow> nat list \<Rightarrow> unit"  (* write function *)
 
-
-type_synonym block_num = nat
-type_synonym file_name = "string"
-type_synonym block_size = int
-type_synonym file_content = "block_num \<times> block_num \<times> file_name"
-
-type_synonym device_state = "(nat \<times> nat \<times> String.literal \<times> nat list) list"
-
 (* Helper functions *)
 fun getn :: "nat list \<Rightarrow> nat \<Rightarrow> nat list" where
   "getn [] n = []"
