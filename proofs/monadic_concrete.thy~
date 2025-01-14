@@ -1,108 +1,162 @@
 theory monadic_concrete
- imports Main
+ imports Main Helper State_Monad "HOL-Library.Char_ord"
 begin
 
-text \<open>
-  We'll assume each block is a list of bytes (nat), and the device is
-  a record containing (1) block size, (2) number of blocks, and
-  (3) a list of blocks.
-\<close>
-
-type_synonym byte = nat
-type_synonym block = "byte list"
+(****************************************************************************)
+(* 1. Low-level representation of device state and file metadata            *)
+(****************************************************************************)
 
 record device_state =
-  bs :: nat
-  nb :: nat
-  blocks :: "block list"
+  dev_name :: string
+  bs       :: nat
+  nb       :: nat
+  blocks   :: "nat \<Rightarrow> int list"
 
-text \<open>
-  We want an invariant that:
-    - length(blocks dev) = nb dev
-    - each block has length bs dev
-  We'll skip formalizing it here, but typically you'd define:
-      invariant dev \<equiv> length(blocks dev) = nb dev
-                     \<and> (\<forall> blk \<in> set(blocks dev). length blk = bs dev)
-\<close>
+record file_meta =
+  fsize :: nat
+  fname :: "int list"
+  fdata :: "int list"
 
-(* For returning either an updated device or an error message. *)
-datatype ('state, 'err, 'val) FSResult =
-    Ok "'state" "'val"
-  | Err "'err"
+definition parse_block :: "int list \<Rightarrow> file_meta option" where
+  "parse_block blk \<equiv>
+     (if length blk < 8 then None
+      else
+        let sz       = bytes64 blk;
+            leftover = restn blk 8;
+            (nm, rest) = split_name leftover;
+            used = 8 + length nm + length rest
+        in if used \<le> length blk \<and> sz = used
+           then Some (\<lparr>fsize = sz, fname = nm, fdata = rest\<rparr>)
+           else None)"
 
-text \<open>
-  We'll define a helper monad-like operator for chaining results.
-  This is NOT the standard Isabelle State-Monad library, just a sketch.
-\<close>
+definition pack_block :: "file_meta \<Rightarrow> int list" where
+  "pack_block fm \<equiv>
+     n64bytes (fsize fm) @ fname fm @ fdata fm"
 
-definition bind :: "('state, 'err, 'val) FSResult \<Rightarrow> ('val \<Rightarrow> ('state, 'err, 'val2) FSResult) \<Rightarrow> ('state, 'err, 'val2) FSResult" where
-"bind r f = (case r of
-   Err e      \<Rightarrow> Err e
- | Ok st val  \<Rightarrow> f val)"
+(******************************************************************************)
+(* 2. Monadic read_block / write_block                                        *)
+(******************************************************************************)
 
-syntax
-  "_bind" :: "[logic, pttrn, logic] \<Rightarrow> logic"  ("do_option { _ \<bind> (_ \<rightarrow>) _ }")
-translations
-  "do_option { X \<bind> (v \<rightarrow>) Y }" \<rightleftharpoons>
-    "CONST bind X (\<lambda> v. Y)"
+definition read_blockM :: "nat \<Rightarrow> (device_state, int list) nondet_monad" where
+  "read_blockM bn \<equiv> do {
+     s \<leftarrow> get;
+     guard (\<lambda>_. bn < nb s);
+     return (blocks s bn)
+   }"
 
-abbreviation ret :: "'state \<Rightarrow> 'val \<Rightarrow> ('state, 'err, 'val) FSResult" ("return _ _")
-  where "return st v \<equiv> Ok st v"
-
-abbreviation err :: "'err \<Rightarrow> ('state, 'err, 'val) FSResult" ("fail _")
-  where "fail e \<equiv> Err e"
-
-text \<open>
-  Now let's define read/write in a purely functional style. We pass in
-  the device_state and return a new device_state (unchanged or updated)
-  plus the result (the block read, or unit, etc.).
-\<close>
-
-definition read_block :: "device_state => nat => (device_state, string, block) FSResult" where
-"read_block dev b = (if b < nb dev then return dev ((blocks dev)!b) else fail ''block index out of range'')"
-
-definition write_block ::
-  "device_state \<Rightarrow> nat \<Rightarrow> block \<Rightarrow> (device_state, string, unit) FSResult"
+definition write_blockM ::
+  "nat \<Rightarrow> int list \<Rightarrow> (device_state, unit) nondet_monad"
 where
-"write_block dev b newblk =
-   (if b < nb dev then
-      if length newblk = bs dev then
-        let new_blocks = (blocks dev)[b := newblk] in
-        let dev' = dev \<lparr> blocks := new_blocks \<rparr> in
-        return dev' ()
-      else fail ''wrong block size''
-    else fail ''block index out of range'')"
+  "write_blockM bn newdata \<equiv> do {
+     s \<leftarrow> get;
+     guard (\<lambda>_. bn < nb s \<and> length newdata = bs s);
+     put (s \<lparr> blocks := (blocks s)(bn := newdata) \<rparr>)
+   }"
 
-text \<open>
-  Sample: format the device by zeroing out all blocks. We'll do
-  a fold from 0 to nb-1. If at any step there's an error, we stop.
-\<close>
+(******************************************************************************)
+(* 3. find_empty in monadic style                                             *)
+(******************************************************************************)
 
-definition format_conc ::
-  "device_state \<Rightarrow> (device_state, string, unit) FSResult"
+definition is_empty_block :: "int list \<Rightarrow> bool" where
+  "is_empty_block blk \<equiv>
+     (case parse_block blk of
+        None     \<Rightarrow> True              
+      | Some fm  \<Rightarrow> (length (fname fm) = 1))"
+
+definition find_emptyM :: "nat \<Rightarrow> (device_state, nat) nondet_monad" where
+  "find_emptyM needed_size \<equiv> do {
+     s \<leftarrow> get;
+     guard (\<lambda>_. needed_size \<le> bs s);
+     let empties = {bn. bn < nb s \<and> is_empty_block (blocks s bn)};
+     bn \<leftarrow> select empties;       
+     return bn
+   }"
+
+(******************************************************************************)
+(* 7. new_file in monadic style                                               *)
+(******************************************************************************)
+
+definition new_fileM ::
+  "string \<Rightarrow> int list \<Rightarrow> (device_state, unit) nondet_monad"
 where
-"format_conc dev =
-   (if bs dev \<le> 9
-    then fail ''bs too small''
-    else
-      let zero_blk = replicate (bs dev) 0 in
-      let nblocks = nb dev in
-      let result =
-         fold (\<lambda> i r. do_option {
-                 r \<bind> (st' \<rightarrow>)
-                 write_block st' i zero_blk
-               })
-              [0..<nblocks]
-              (return dev ())
-      in
-      case result of
-        Err e \<Rightarrow> Err e
-      | Ok st' _ \<Rightarrow> return st' ()))"
+  "new_fileM name data \<equiv> do {
+     s \<leftarrow> get;
+     let name_bytes  = map (\<lambda>c. int (Char.ord c)) (String.explode name) @ [0];
+     let needed_size = 8 + length name_bytes + length data;
+
+     guard (\<lambda>_. needed_size \<le> bs s);
+
+     bn \<leftarrow> find_emptyM needed_size;
+
+     let fm  = \<lparr> fsize = needed_size, fname = name_bytes, fdata = data \<rparr>;
+     let blk = pack_block fm;
+
+     _ \<leftarrow> write_blockM bn blk;
+
+     return ()
+   }"
+
+(******************************************************************************)
+(* 8. find_file, read_file, delete_file in monadic style                      *)
+(******************************************************************************)
+
+definition matches_name :: "file_meta \<Rightarrow> string \<Rightarrow> bool" where
+  "matches_name fm s \<equiv>
+     let s_bytes = map (\<lambda>c. int (Char.ord c)) (String.explode s) @ [0]
+     in fname fm = s_bytes"
+
+(* find_file_loop: purely functional helper that returns Some(bn,fm) if found *)
+fun find_file_loop ::
+  "device_state \<Rightarrow> string \<Rightarrow> nat \<Rightarrow> (nat * file_meta) option"
+where
+  "find_file_loop dev s bn =
+     (if bn \<ge> nb dev then None
+      else
+        let blk = blocks dev bn in
+        case parse_block blk of
+          None \<Rightarrow> find_file_loop dev s (bn + 1)
+        | Some fm \<Rightarrow>
+            if matches_name fm s then Some (bn, fm)
+            else find_file_loop dev s (bn + 1))"
+
+(* find_fileM: monadic wrapper around 'find_file_loop' *)
+definition find_fileM ::
+  "string \<Rightarrow> ((nat * file_meta), device_state) s_monad"
+where
+  "find_fileM s \<equiv> (\<lambda>dev.
+     case find_file_loop dev s 0 of
+       None \<Rightarrow> None
+     | Some (bn, fm) \<Rightarrow> Some ((bn, fm), dev))"
 
 text \<open>
-  We'll not define the entire new_file, read_file, etc. here, but they'd follow
-  the same pattern: do an operation, if success, pass the updated dev to the next,
-  otherwise fail. Then return the final dev + some result.
+  read_fileM:  
+   1) find_fileM name  
+   2) return the fdata from that file_meta
 \<close>
+definition read_fileM ::
+  "string \<Rightarrow> (int list, device_state) s_monad"
+where
+  "read_fileM s \<equiv> do {
+     (bn, fm) \<leftarrow> find_fileM s;
+     return (fdata fm)
+   }"
 
+text \<open>
+  delete_fileM:  
+   1) find_fileM name  
+   2) write an empty block or zero block to that block index
+\<close>
+definition empty_block :: "device_state \<Rightarrow> int list" where
+  "empty_block dev \<equiv> replicate (bs dev) 0"
+
+definition delete_fileM ::
+  "string \<Rightarrow> (unit, device_state) s_monad"
+where
+  "delete_fileM s \<equiv> do {
+     (bn, fm) \<leftarrow> find_fileM s;
+     dev \<leftarrow> (\<lambda>st. Some (st, st));
+     let blk0 = empty_block dev;
+     _ \<leftarrow> write_blockM bn blk0;
+     return ()
+   }"
 end

@@ -1,5 +1,5 @@
 theory imperative_concrete
-  imports Main
+  imports Main abstract
 begin
 
 (****************************************************************************)
@@ -57,13 +57,13 @@ fun new_file_concrete :: "ConcreteFS_State \<Rightarrow> string \<Rightarrow> Co
          nblocks  = nb s;
          blk_data = (fname_len # map nat_of_char (String.explode f)) @ c
      in if fname_len = 0 \<or> fname_len + length c + 1 > bs 
-            (* ensure block_size is enough for name+content+1 *)
+
         then None  (* file name too large or something else *)
         else 
-          (* scan the [blocks s] list for an empty block and update it *)
+
           (let old_blocks = blocks s in
            case find_index (\<lambda>blk. block_is_empty blk) old_blocks of
-             None       \<Rightarrow> None  (* no empty block available *)
+             None       \<Rightarrow> None
            | Some idx   \<Rightarrow> 
                let new_blk = blk_data
                    ; new_blocks = old_blocks[idx := new_blk]
