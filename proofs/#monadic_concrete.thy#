@@ -80,7 +80,7 @@ definition new_fileM ::
   "string \<Rightarrow> int list \<Rightarrow> (unit, device_state) s_monad"
 where
   "new_fileM nm data \<equiv> do {
-     dev \<leftarrow> (\<lambda>s. Some (s, s));  \<comment> \<open>equivalent to 'get' in a state monad\<close>
+     dev \<leftarrow> (\<lambda>s. Some (s, s));
 
      let name_bytes = map (\<lambda>c. int (Char.ord c)) (String.explode nm) @ [0];
      let needed_size = 8 + length name_bytes + length data;
