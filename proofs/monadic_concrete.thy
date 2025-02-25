@@ -73,7 +73,7 @@ definition find_emptyM :: "nat \<Rightarrow> (device_state, nat) nondet_monad" w
    }"
 
 (******************************************************************************)
-(* 7. new_file in monadic style                                               *)
+(* 4. new_file in monadic style                                               *)
 (******************************************************************************)
 
 definition char_to_nat :: "char \<Rightarrow> int" where
@@ -98,7 +98,7 @@ where
    }"
 
 (******************************************************************************)
-(* 8. find_file, read_file, delete_file in monadic style                      *)
+(* 5. find_file, read_file, delete_file in monadic style                      *)
 (******************************************************************************)
 
 definition matches_name :: "file_meta \<Rightarrow> String.literal \<Rightarrow> bool" where
@@ -115,9 +115,7 @@ fun all_file_matches :: "device_state \<Rightarrow> String.literal \<Rightarrow>
              None     \<Rightarrow> {}
            | Some fm \<Rightarrow> if matches_name fm s then {(bn, fm)} else {}))"
 
-definition find_fileM ::
-  "String.literal \<Rightarrow> (device_state, (nat \<times> file_meta)) nondet_monad"
-where
+definition find_fileM :: "String.literal \<Rightarrow> (device_state, (nat \<times> file_meta)) nondet_monad" where
   "find_fileM s \<equiv> do {
      dev \<leftarrow> get;
      let matches = all_file_matches dev s; 

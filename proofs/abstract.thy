@@ -11,46 +11,88 @@ definition new_file_abs :: "FS_State \<Rightarrow> Filename \<Rightarrow> Conten
  "new_file_abs fs f c = (if fs f = None then Some (fs(f := Some c)) else None)"
 
 definition read_file_abs :: "FS_State \<Rightarrow> Filename \<Rightarrow> Content option" where
-"read_file_abs fs f = fs f"
+ "read_file_abs fs f = fs f"
 
-definition delete_file_abs :: "FS_State \<Rightarrow> Filename \<Rightarrow> FS_State" where
-"delete_file_abs fs f = fs(f := None)"
+definition delete_file_abs :: "FS_State \<Rightarrow> Filename \<Rightarrow> FS_State option" where
+ "delete_file_abs fs f = (if fs f \<noteq> None then Some (fs(f := None)) else None)"
 
+(*-------------------------------------------------------*)
 lemma read_after_create_abstract:
   assumes "new_file_abs fs f c = Some fs'"
   shows "read_file_abs fs' f = Some c"
   using assms
   unfolding new_file_abs_def read_file_abs_def
-  by (metis fun_upd_def not_None_eq option.sel)
+  by (metis map_upd_Some_unfold option.distinct(1))
 
+datatype FS_Op = New Filename Content | Read Filename | Delete Filename
 
-record absfile =
-  size :: nat
-  name :: string
-  data :: "nat list"  (* List of bytes *)
+fun apply_op :: "FS_State \<Rightarrow> FS_Op \<Rightarrow> FS_State option" where
+  "apply_op fs (New f c)    = new_file_abs fs f c"
+| "apply_op fs (Read f)     = Some fs"
+| "apply_op fs (Delete f)   = delete_file_abs fs f"
 
-(* A well-formed file: the size includes the size of name and data *)
-definition well_formed_file :: "absfile \<Rightarrow> bool" where
-  "well_formed_file f \<equiv> (size f = length (name f) + length (data f) + 8)"
+fun apply_ops :: "FS_State \<Rightarrow> FS_Op list \<Rightarrow> FS_State option" where
+  "apply_ops fs []       = (if fs = (\<lambda>x. None) then None else Some fs)"
+| "apply_ops fs (op#ops) =
+     (case apply_op fs op of
+        None      \<Rightarrow> apply_ops fs ops 
+      | Some fs'  \<Rightarrow> apply_ops fs' ops)"
 
-definition create_file :: "string \<Rightarrow> nat list \<Rightarrow> absfile" where
-  "create_file fname fdata = \<lparr>size = length fname + length fdata + 8, name = fname, data = fdata\<rparr>"
+(* Helper lemma for New: if a new_file_abs succeeds for some f' \<noteq> f, then f is not changed *)
+lemma new_does_not_delete_other_file:
+  assumes "new_file_abs fs f' c = Some fs1" and "f \<noteq> f'"
+  shows "fs1 f = fs f"
+  using assms
+  unfolding new_file_abs_def
+  by (metis fun_upd_other option.distinct(1) option.inject)
 
-definition read_file :: "string \<Rightarrow> absfile list \<Rightarrow> absfile option" where
-  "read_file fname flist = (find (\<lambda>f. name f = fname) flist)"
+(* Helper lemma for Delete: if delete_file_abs succeeds for some f' \<noteq> f, then f is not changed *)
+lemma delete_does_not_affect_other_file:
+  assumes "delete_file_abs fs f' = Some fs1" and "f \<noteq> f'"
+  shows "fs1 f = fs f"
+  using assms
+  unfolding delete_file_abs_def
+  by (metis fun_upd_other option.distinct(1) option.inject)
 
-definition delete_file :: "string \<Rightarrow> absfile list \<Rightarrow> absfile list" where
-  "delete_file fname flist \<equiv> filter (\<lambda>f. name f \<noteq> fname) flist"
+(*-------------------------------------------------------*)
+lemma preserve_file_presence:
+  assumes "apply_ops fs ops = Some fs'"
+    and "f \<notin> {f'. (Delete f') \<in> set ops}"
+    and "f \<notin> {f'. (New f' c) \<in> set ops}"
+  shows "fs f = fs' f"
+  using assms
+proof (induct ops arbitrary: fs)
+  case Nil
+  then show ?case 
+  proof (cases "fs = (\<lambda>x. None)")
+    case True
+    then have "apply_ops fs [] = None" by simp
+    hence "None = Some fs'" using Nil by simp
+    then show ?thesis by simp
+  next
+    case False
+    then have "apply_ops fs [] = Some fs" by simp
+    hence "Some fs = Some fs'" using Nil by simp
+    then have "fs = fs'" using option.inject by simp
+    then show ?thesis by simp
+  qed
+next
+  case (Cons a ops)
+  then show ?case 
+  proof (cases a)
+    case (New f' c)
+    have "apply_op fs (New f' c) = new_file_abs fs f' c" by simp
+    then show ?thesis
+      unfolding new_file_abs_def
+      apply simp
+      apply (simp add: new_does_not_delete_other_file)
+  next
+    case (Read f')
+    then show ?thesis sorry
+  next
+    case (Delete f')
+    then show ?thesis sorry
+  qed
+qed
 
-definition unique_file_names :: "absfile list \<Rightarrow> bool" where
-  "unique_file_names flist \<equiv> distinct (map name flist)"
-
-definition file_exists :: "string \<Rightarrow> absfile list \<Rightarrow> bool" where
-  "file_exists fname flist \<equiv> \<exists>f \<in> set flist. name f = fname"
-
-theorem create_file_in_list: "\<not>file_exists fname flist \<Longrightarrow> file_exists fname (create_file fname fdata # flist)"
-  by (auto simp: create_file_def file_exists_def)
-
-theorem delete_file_not_in_list: "file_exists fname flist \<Longrightarrow> \<not>file_exists fname (delete_file fname flist)"
-  by (auto simp: delete_file_def file_exists_def)
 end

@@ -49,7 +49,7 @@ Correctness Proof
       operation returns the same contents are were given to the new_file
       operation that created the file. This requires an assumption that reading 
       a block returns the same set of bytes that were most recently written to that block
-  
+    (make it more general)
   2.  since SAP stores new files into successive free blocks, it would be good
       to prove that  the file creation will succeed as long as the
       file fits in the largest free block group and the file name is unique.
