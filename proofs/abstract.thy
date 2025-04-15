@@ -57,6 +57,7 @@ lemma delete_does_not_affect_other_file:
 (*-------------------------------------------------------*)
 lemma preserve_file_presence:
   assumes "apply_ops fs ops = Some fs'"
+    and "fs f = Some c"
     and "f \<notin> {f'. (Delete f') \<in> set ops}"
     and "f \<notin> {f'. (New f' c) \<in> set ops}"
   shows "fs f = fs' f"
@@ -85,7 +86,6 @@ next
     then show ?thesis
       unfolding new_file_abs_def
       apply simp
-      apply (simp add: new_does_not_delete_other_file)
   next
     case (Read f')
     then show ?thesis sorry

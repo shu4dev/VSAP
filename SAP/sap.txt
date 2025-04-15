@@ -321,3 +321,72 @@ if List.length fname > 1 then (name, bn, dsize) :: others
                       else others in
 check_invariant3 device;
 helper 0L
+
+(* test stuff *)
+let blocks = Array.make 500 []
+let read_block bs n =
+let data = Array.get blocks (Int64.to_int n) in
+check_invariant1 bs data;
+data
+
+(* let write_block n b = Array.set blocks n b *)
+let write_block bs n b =
+check_invariant1 bs b;
+Array.set blocks (Int64.to_int n) b
+let dev = let bs = 512L in
+{ name = "test"; bs = bs; nb = 100L; r = read_block bs; w = write_block bs }
+let rec make_data = function
+| 0 -> []
+| n -> (n mod 256) :: make_data (n - 1)
+let data = [1; 2; 3; 4; 5; 6; 7; 8; 9; 10; 11; 12]
+(* two blocks' worth of data *)
+let ld = data @ data @ data @ data @ data @ data @ data @ data @ data @ data @
+data @ data @ data @ data @ data @ data @ data @ data @ data @ data @
+data @ data @ data @ data @ data @ data @ data @ data @ data @ data @
+data @ data @ data @ data @ data @ data @ data @ data @ data @ data @
+data @ data @ data @ data @ data @ data @ data @ data @ data @ data @
+data @ data @ data @ data @ data @ data @ data @ data @ data @ data @
+data @ data @ data @ data @ data @ data @ data @ data @ data @ data
+
+let rec make_files device = function
+| [] -> ()
+| (fname, fsize) :: rest ->
+(print_endline ("making file " ^ fname);
+new_file device fname (make_data fsize);
+make_files device rest)
+let sample_files1 = [("a", 10); ("b", 600); ("c", 512); ("d", 500); ("e", 501);
+      ("f", 502); ("g", 503); ("h", 504); ("i", 505);
+      ("j", 10000); ("k", 1); ("l", 0)]
+
+(* print the non-zero part of non-zero blocks *)
+let print_blocks device max =
+let blen = Int64.of_int (Array.length blocks) in
+let dlen = if device.nb < blen then device.nb else blen in
+let actual_max = if max <= 0L || max > dlen then dlen else max in
+let rec is_zeros = function
+| [] -> true
+| 0 :: rest -> is_zeros rest
+| _ -> false in
+let rec print_block lst min =
+if min <= 0L && is_zeros lst then ()
+else match lst with
+    | [] -> if min <= 0L then failwith "no bytes in print_block"
+            else print_block (make_zeros min) min
+    | first :: rest ->
+       print_int first;
+       print_string " ";
+       print_block rest (Int64.sub min 1L) in
+let rec print_all n =
+if n < actual_max then
+ (let a = read_block device.bs n in
+  if is_zeros a then ()
+  else
+    (print_int (Int64.to_int n);
+     print_string ": ";
+     print_block a 8L;
+     print_endline "");
+  print_all (Int64.add n 1L))
+else () in
+print_all 0L
+
+let p () = print_blocks dev 0L
